@@ -16,10 +16,21 @@ def send_telegram(msg):
 def get_top_symbols():
     try:
         url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
-        data = requests.get(url).json()
-        usdt_pairs = [s for s in data if "USDT" in s["symbol"]]
-        sorted_pairs = sorted(usdt_pairs, key=lambda x: float(x["quoteVolume"]), reverse=True)
+        response = requests.get(url, timeout=10)
+
+        if response.status_code != 200:
+            return []
+
+        data = response.json()
+
+        if not isinstance(data, list):
+            return []
+
+        usdt_pairs = [s for s in data if isinstance(s, dict) and "symbol" in s and "USDT" in s["symbol"]]
+        sorted_pairs = sorted(usdt_pairs, key=lambda x: float(x.get("quoteVolume", 0)), reverse=True)
+
         return [s["symbol"] for s in sorted_pairs[:20]]
+
     except:
         return []
 
@@ -65,6 +76,9 @@ def check_symbol(symbol):
     try:
         data = get_klines(symbol)
 
+        if not isinstance(data, list) or len(data) < 50:
+            return
+
         closes = [float(c[4]) for c in data]
         volumes = [float(c[5]) for c in data]
 
@@ -105,6 +119,9 @@ send_telegram("🔥 BOT PRO MAX (LIQUIDITY) STARTED 🔥")
 
 symbols = get_top_symbols()
 
+if not symbols:
+    symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+
 last_update = time.time()
 last_alive = time.time()
 
@@ -114,15 +131,13 @@ while True:
 
         if now - last_update > 86400:
             symbols = get_top_symbols()
-            send_telegram(f"📊 Top 20 updated:\n{symbols}")
+            if symbols:
+                send_telegram(f"📊 Top 20 updated:\n{symbols}")
             last_update = now
 
         if now - last_alive > 3600:
             send_telegram("🟢 Bot Alive")
             last_alive = now
-
-        if not symbols:
-            symbols = get_top_symbols()
 
         for s in symbols:
             check_symbol(s)
