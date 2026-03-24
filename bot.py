@@ -94,3 +94,17 @@ while True:
     for s in symbols:
         check_symbol(s)
         time.sleep(0.5)
+        from flask import Flask
+import threading
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running"
+
+def run_web():
+    app.run(host='0.0.0.0', port=10000)
+
+# تشغيل السيرفر في thread
+threading.Thread(target=run_web).start()
