@@ -35,8 +35,14 @@ def get_top_symbols():
         return []
 
 def get_klines(symbol):
-    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=1m&limit=210"
-    return requests.get(url).json()
+    try:
+        url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=1m&limit=210"
+        data = requests.get(url, timeout=10).json()
+        if not isinstance(data, list):
+            return []
+        return data
+    except:
+        return []
 
 def ema(prices, period=200):
     k = 2 / (period + 1)
@@ -120,7 +126,7 @@ send_telegram("🔥 BOT PRO MAX (LIQUIDITY) STARTED 🔥")
 symbols = get_top_symbols()
 
 if not symbols:
-    symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+    symbols = ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT"]
 
 last_update = time.time()
 last_alive = time.time()
