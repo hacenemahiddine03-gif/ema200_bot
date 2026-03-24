@@ -107,16 +107,26 @@ def check_symbol(symbol):
     except:
         pass
 
+# 🚀 تشغيل
 send_telegram("🔥 BOT PRO MAX (LIQUIDITY) STARTED 🔥")
 
 last_update = 0
+last_alive = 0
 
 while True:
 
-    if time.time() - last_update > 86400:
+    now = time.time()
+
+    # 📊 تحديث العملات كل 24 ساعة
+    if now - last_update > 86400:
         symbols = get_top_symbols()
         send_telegram(f"📊 Top 20 updated:\n{symbols}")
-        last_update = time.time()
+        last_update = now
+
+    # 🟢 رسالة Alive كل ساعة
+    if now - last_alive > 3600:
+        send_telegram("🟢 Bot Alive")
+        last_alive = now
 
     for s in symbols:
         check_symbol(s)
