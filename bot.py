@@ -1,153 +1,87 @@
 import requests
 import time
+from flask import Flask
+from threading import Thread
 
-BOT_TOKEN = "8689273495:AAEBiA59NDYK-GGJpIQiakSQjCnWaBXdTRk"
+TOKEN = "8689273495:AAEBiA59NDYK-GGJpIQiakSQjCnWaBXdTRk"
 CHAT_ID = "6420044567"
 
-last_signal = {}
+app = Flask(__name__)
 
-def send_telegram(msg):
+def send_message(text):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+        requests.post(url, json={"chat_id": CHAT_ID, "text": text})
     except:
         pass
+
+@app.route('/')
+def home():
+    return "Bot is alive"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=10000)
 
 def get_top_symbols():
     try:
         url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
-        response = requests.get(url, timeout=10)
-
-        if response.status_code != 200:
-            return []
-
+        response = requests.get(url)
         data = response.json()
 
-        if not isinstance(data, list):
-            return []
-
-        usdt_pairs = [s for s in data if isinstance(s, dict) and "symbol" in s and "USDT" in s["symbol"]]
-        sorted_pairs = sorted(usdt_pairs, key=lambda x: float(x.get("quoteVolume", 0)), reverse=True)
+        usdt_pairs = [s for s in data if "USDT" in s["symbol"]]
+        sorted_pairs = sorted(usdt_pairs, key=lambda x: float(x["quoteVolume"]), reverse=True)
 
         return [s["symbol"] for s in sorted_pairs[:20]]
-
     except:
         return []
 
 def get_klines(symbol):
-    try:
-        url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=1m&limit=210"
-        data = requests.get(url, timeout=10).json()
-        if not isinstance(data, list):
-            return []
-        return data
-    except:
-        return []
+    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=5m&limit=210"
+    data = requests.get(url).json()
+    closes = [float(k[4]) for k in data]
+    return closes
 
-def ema(prices, period=200):
+def ema(data, period=200):
     k = 2 / (period + 1)
-    ema_val = prices[0]
-    for price in prices:
-        ema_val = price * k + ema_val * (1 - k)
-    return ema_val
+    ema_value = data[0]
+    for price in data:
+        ema_value = price * k + ema_value * (1 - k)
+    return ema_value
 
-def rsi(prices, period=14):
-    gains, losses = 0, 0
-    for i in range(1, period+1):
-        diff = prices[-i] - prices[-i-1]
-        if diff > 0:
-            gains += diff
-        else:
-            losses -= diff
-    if losses == 0:
-        return 100
-    rs = gains / losses
-    return 100 - (100 / (1 + rs))
+def check_signal():
+    symbols = get_top_symbols()
 
-def is_bearish_engulfing(c):
-    return float(c[-2][4]) > float(c[-2][1]) and float(c[-1][4]) < float(c[-1][1]) and float(c[-1][4]) < float(c[-2][1])
-
-def is_bullish_engulfing(c):
-    return float(c[-2][4]) < float(c[-2][1]) and float(c[-1][4]) > float(c[-1][1]) and float(c[-1][4]) > float(c[-2][1])
-
-def liquidity_sweep_high(data):
-    highs = [float(c[2]) for c in data[-10:-1]]
-    return float(data[-1][2]) > max(highs)
-
-def liquidity_sweep_low(data):
-    lows = [float(c[3]) for c in data[-10:-1]]
-    return float(data[-1][3]) < min(lows)
-
-def check_symbol(symbol):
-    try:
-        data = get_klines(symbol)
-
-        if not isinstance(data, list) or len(data) < 50:
-            return
-
-        closes = [float(c[4]) for c in data]
-        volumes = [float(c[5]) for c in data]
+    for symbol in symbols:
+        closes = get_klines(symbol)
+        if len(closes) < 200:
+            continue
 
         ema200 = ema(closes)
-        rsi_val = rsi(closes)
-
         price = closes[-1]
 
-        volume_now = volumes[-1]
-        volume_avg = sum(volumes[-20:]) / 20
+        if price > ema200 * 1.01:
+            if abs(price - ema200) / ema200 < 0.003:
+                send_message(f"🔥 {symbol} NEAR EMA200 AFTER BREAKOUT")
 
-        near_ema = abs(price - ema200) / ema200 < 0.002
-        high_volume = volume_now > volume_avg * 1.5
+def bot_loop():
+    send_message("🔥 BOT STARTED 🔥")
 
-        sweep_high = liquidity_sweep_high(data)
-        sweep_low = liquidity_sweep_low(data)
+    last_alive = time.time()
 
-        if (price < ema200 and near_ema and
-            is_bearish_engulfing(data) and
-            rsi_val > 60 and high_volume and sweep_high):
+    while True:
+        try:
+            check_signal()
 
-            if last_signal.get(symbol) != "short":
-                send_telegram(f"🔻 SHORT {symbol}\nEMA + Volume + PA + Sweep\nRSI: {round(rsi_val,1)}")
-                last_signal[symbol] = "short"
+            if time.time() - last_alive > 3600:
+                send_message("🟢 Bot Alive")
+                last_alive = time.time()
 
-        elif (price > ema200 and near_ema and
-              is_bullish_engulfing(data) and
-              rsi_val < 40 and high_volume and sweep_low):
+            time.sleep(60)
+        except:
+            time.sleep(10)
 
-            if last_signal.get(symbol) != "long":
-                send_telegram(f"🔺 LONG {symbol}\nEMA + Volume + PA + Sweep\nRSI: {round(rsi_val,1)}")
-                last_signal[symbol] = "long"
+if __name__ == "__main__":
+    t1 = Thread(target=run_flask)
+    t1.start()
 
-    except:
-        pass
-
-send_telegram("🔥 BOT PRO MAX (LIQUIDITY) STARTED 🔥")
-
-symbols = get_top_symbols()
-
-if not symbols:
-    symbols = ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT"]
-
-last_update = time.time()
-last_alive = time.time()
-
-while True:
-    try:
-        now = time.time()
-
-        if now - last_update > 86400:
-            symbols = get_top_symbols()
-            if symbols:
-                send_telegram(f"📊 Top 20 updated:\n{symbols}")
-            last_update = now
-
-        if now - last_alive > 3600:
-            send_telegram("🟢 Bot Alive")
-            last_alive = now
-
-        for s in symbols:
-            check_symbol(s)
-            time.sleep(0.5)
-
-    except:
-        time.sleep(5)
+    bot_loop()
